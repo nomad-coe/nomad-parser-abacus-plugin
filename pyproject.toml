@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = 'nomad-parser-plugin-abacus'
+version = '1.0'
+description = 'Abacus parser plugin for NOMAD.'
+readme = "README.md"
+authors = [{ name = "The NOMAD Authors" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+]
+
+[project.urls]
+homepage = "https://github.com/nomad-coe/nomad-parser-abacus-plugin"
+
+[project.optional-dependencies]
+tests = [
+    'pytest'
+]
+
+[tool.setuptools.packages.find]
+include = ["abacusparser*"]
+
+[tool.setuptools.package-data]
+nomadschemaexample = ['*/nomad_plugin.yaml']
