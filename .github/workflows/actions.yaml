@@ -12,7 +12,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        pip install -r requirements.txt git+https://github.com/nomad-coe/nomad.git@develop
+        pip install git+https://github.com/nomad-coe/nomad.git@develop
     - name: Test with pytest
       run: |
         python -m pytest -sv tests
