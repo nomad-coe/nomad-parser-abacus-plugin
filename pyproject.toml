@@ -17,7 +17,8 @@ homepage = "https://github.com/nomad-coe/nomad-parser-abacus-plugin"
 
 [project.optional-dependencies]
 tests = [
-    'pytest'
+    'pytest',
+    'nomad@git+https://github.com/nomad-coe/nomad.git#egg=develop'
 ]
 
 [tool.setuptools.packages.find]
