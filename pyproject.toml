@@ -18,9 +18,14 @@ homepage = "https://github.com/nomad-coe/nomad-parser-abacus-plugin"
 
 [project.optional-dependencies]
 dev = [
-    'pytest',
+    'mypy==1.0.1',
+    'pytest==3.10.0',
+    'pytest-timeout==1.4.2',
+    'pytest-cov==2.7.1',
+    'typing-extensions==4.4.0',
     'ruff==0.1.4'
 ]
+
 
 [tool.ruff]
 include = ["electronicparsers/*.py", "tests/*.py"]
