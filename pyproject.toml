@@ -28,7 +28,7 @@ dev = [
 
 
 [tool.ruff]
-include = ["electronicparsers/*.py", "tests/*.py"]
+include = ["abacusparser/*.py", "tests/*.py"]
 select = [
     "E", # pycodestyle
     "W", # pycodestyle
