@@ -23,7 +23,6 @@ import numpy as np
 from collections import namedtuple
 from datetime import datetime
 
-from .metainfo import m_env
 from nomad.units import ureg
 from nomad.parsing.file_parser import TextParser, Quantity, DataTextParser, Parser
 from nomad.datamodel.metainfo.simulation.run import Run, Program, TimeRun
@@ -37,11 +36,12 @@ from nomad.datamodel.metainfo.simulation.calculation import (
 from nomad.datamodel.metainfo.simulation.workflow import (
     GeometryOptimization, MolecularDynamics, MolecularDynamicsMethod, GeometryOptimizationMethod,
     SinglePoint, SinglePointMethod)
-from .metainfo.abacus import (
+from simulationparsers.re_patterns import FLOAT as re_float
+from .schema.abacus import (
     Method as xsection_method, x_abacus_section_parallel, x_abacus_section_specie_basis_set)
 
 
-re_float = r'[-+]?\d+\.*\d*(?:[Ee][-+]\d+)?'
+# re_float = r'[-+]?\d+\.*\d*(?:[Ee][-+]\d+)?'
 
 
 class ABACUSInputParser(TextParser):
@@ -238,17 +238,6 @@ class ABACUSOutParser(TextParser):
             for v in val:
                 data.append(
                     Data(proc=int(v[0]), columns=int(v[1]), pw=int(v[2])))
-            return data
-
-        def str_to_orbital(val_in):
-            Data = namedtuple(
-                'Orbital', ['index', 'l', 'n', 'nr', 'dr', 'rcut', 'check_unit', 'new_unit'])
-            val = re.findall(
-                rf'\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+({re_float})\s+({re_float})\s+({re_float})\s+({re_float})\n', val_in)
-            data = []
-            for v in val:
-                data.append(Data(index=int(v[0]), l=int(v[1]), n=int(v[2]), nr=int(v[3]), dr=float(
-                    v[4]), rcut=float(v[5]), check_unit=float(v[6]), new_unit=float(v[7])))
             return data
 
         def str_to_energy_occupation(val_in):
@@ -448,8 +437,9 @@ class ABACUSOutParser(TextParser):
             ),
             Quantity(
                 'orbital_information',
-                r'ORBITAL\s*L\s*N\s*nr\s*dr\s*RCUT\s*CHECK_UNIT\s*NEW_UNIT\n([\s\S]+)SET NONLOCAL PSEUDOPOTENTIAL PROJECTORS',
-                convert=False, str_operation=str_to_orbital, repeats=True
+                r'ORBITAL +L +N +nr +dr +RCUT +CHECK_UNIT +NEW_UNIT\s+'
+                rf'((?:\d+ +\d+ +\d+ +\d+ +{re_float} +\d+ +\d+ +\d+\s+)+)',
+                repeats=True, str_operation=lambda x: [line.strip().split() for line in x.strip().splitlines()]
             )
         ]
 
@@ -1215,14 +1205,19 @@ class ABACUSParser(Parser):
                     continue
                 setattr(sec_scf, f'x_abacus_{key}', val)
 
-        def parse_system():
-            sec_system = sec_run.m_create(System)
-            structure = header.get('positions')
+        def parse_system(structure=None):
+            sec_atoms = Atoms()
+            sec_system = System(atoms=sec_atoms)
+
+            alat = header.get('alat')
+
+            if structure is None:
+                structure = header.get('positions')
+
+            sec_atoms.lattice_vectors = structure.get('lattice_vectors') * alat
 
             # structure
-            alat = header.get('alat')
             sec_system.x_abacus_alat = alat  # bohr
-            sec_atoms = sec_system.m_create(Atoms)
             lattice_vectors = header.get('lattice_vectors') * alat
             sec_atoms.lattice_vectors = lattice_vectors
 
@@ -1283,6 +1278,8 @@ class ABACUSParser(Parser):
             sec_system.x_abacus_number_of_species = header.number_of_species
             sec_system.x_abacus_number_of_electrons_out = header.number_of_electrons_out
             sec_system.number_of_electrons_out = self.input_parser.get('nelec')
+
+            sec_run.system.append(sec_system)
 
         def parse_section(section):
             sec_scc = sec_run.m_create(Calculation)
@@ -1458,7 +1455,7 @@ class ABACUSParser(Parser):
         nkstot_ibz = header.get('nkstot_ibz')
         sec_kmesh.n_points = nkstot_ibz if nkstot_ibz is not None else nkstot
         sec_kmesh.generation_method = header.get('ksampling_method')
-        sec_kmesh.points, sec_kmesh.weights = header.get('k_points')
+        sec_kmesh.points, sec_kmesh.weights = header.get('k_points', (None, None))
 
         # smearing
         occupations = self.input_parser.get('occupations', 'smearing')
@@ -1503,14 +1500,10 @@ class ABACUSParser(Parser):
                         x_abacus_section_specie_basis_set)
                     sec_specie_basis_set.x_abacus_specie_basis_set_filename = os.path.basename(
                         header.get('orbital_files')[i])
-                    ln_list = []
-                    for data in orb:
-                        ln_list.append([data.l, data.n])
-                    sec_specie_basis_set.x_abacus_specie_basis_set_ln = ln_list
-                    sec_specie_basis_set.x_abacus_specie_basis_set_rcutoff = data.rcut
-                    sec_specie_basis_set.x_abacus_specie_basis_set_rmesh = data.nr
-                    sec_specie_basis_set.x_abacus_specie_basis_set_number_of_orbitals = len(
-                        ln_list)
+                    sec_specie_basis_set.x_abacus_specie_basis_set_ln = [[int(d[1]), int(d[2])] for d in orb]
+                    sec_specie_basis_set.x_abacus_specie_basis_set_rmesh = orb[0][3]
+                    sec_specie_basis_set.x_abacus_specie_basis_set_rcutoff = orb[0][5]
+                    sec_specie_basis_set.x_abacus_specie_basis_set_number_of_orbitals = len(orb)
             ems.append(BasisSetContainer(scope=[name], basis_set=[bs]))
         sec_method.electrons_representation = ems
 
@@ -1597,43 +1590,42 @@ class ABACUSParser(Parser):
                 if xc_parameters:
                     xc_func.parameters = xc_parameters
 
-    def write_to_archive(self):
+    def write_to_archive(self) -> None:
         self.out_parser.mainfile = self.mainfile
         self.out_parser.logger = self.logger
         self.input_parser.logger = self.logger
         self.tdos_parser.logger = self.logger
 
-        sec_run = self.archive.m_create(Run)
-        sec_run.program = Program(
-            name='ABACUS', version=self.out_parser.get('program_version'))
+        sec_run = Run()
+        self.archive.run.append(sec_run)
+
+        sec_run.program = Program(name='ABACUS', version=self.out_parser.get('program_version'))
         header = self.out_parser.get('header', {})
 
         # parallel
-        sec_parallel = sec_run.m_create(x_abacus_section_parallel)
+        sec_parallel = x_abacus_section_parallel()
+        sec_run.x_abacus_section_parallel.append(sec_parallel)
         sec_parallel.x_abacus_nproc = self.out_parser.get('nproc')
         for key in ['kpar', 'bndpar', 'diago_proc']:
-            val = self.input_parser.get(key)
-            if val is not None:
-                setattr(sec_parallel, f'x_abacus_{key}', val)
+            sec_parallel.m_set(
+                sec_parallel.m_get_quantity_definition(f'x_abacus_{key}'),
+                self.input_parser.get(key))
         for key in ['method', 'nb2d', 'trace_loc_row', 'trace_loc_col', 'nloc']:
             allocation_method = header.get('allocation_method')
             if allocation_method is not None:
-                val = allocation_method.get(key)
-                if val is not None:
-                    setattr(sec_parallel, f'x_abacus_allocation_{key}', val)
+                sec_parallel.m_set(
+                    sec_parallel.m_get_quantity_definition(f'x_abacus_allocation_{key}'),
+                    allocation_method.get(key))
 
         # input files
         self.parse_method()
         self.parse_configurations()
-        sec_run.x_abacus_stru_filename = self.input_parser.get(
-            'stru_filename', 'STRU')
-        sec_run.x_abacus_kpt_filename = self.input_parser.get(
-            'kpt_filename', 'KPT')
+        sec_run.x_abacus_stru_filename = self.input_parser.get('stru_filename', 'STRU')
+        sec_run.x_abacus_kpt_filename = self.input_parser.get('kpt_filename', 'KPT')
         sec_run.x_abacus_input_filename = self.out_parser.get('input_filename')
         for key in ['basis_set_dirname', 'pseudopotential_dirname']:
             val = self.out_parser.get(key)
-            if val is not None:
-                setattr(sec_run, f'x_abacus_{key}', val)
+            sec_run.m_set(sec_run.m_get_quantity_definition(f'x_abacus_{key}'), val)
 
         # sampling method
         if self.sampling_method is not None:
